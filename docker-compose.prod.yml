@@ -1,0 +1,70 @@
+version: '3.8'
+
+# Production docker-compose for self-hosted deployment
+# Usage: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: invenflow_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-inventory_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - invenflow_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-inventory_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    image: rohit3006/invenflow-backend:latest
+    container_name: invenflow_backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-inventory_db}
+      POSTGRES_HOST: postgres
+      ENVIRONMENT: production
+    ports:
+      - "8000:8000"
+    networks:
+      - invenflow_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    image: rohit3006/invenflow-frontend:latest
+    container_name: invenflow_frontend
+    restart: always
+    ports:
+      - "3000:80"
+    networks:
+      - invenflow_net
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+    name: invenflow_postgres_data
+
+networks:
+  invenflow_net:
+    name: invenflow_network
+    driver: bridge
